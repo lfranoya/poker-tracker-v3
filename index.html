@@ -159,7 +159,8 @@ input[type="number"] { -moz-appearance: textfield; }
 .c-btn:active { background: var(--border); }
 .c-val {
   flex: 1; min-width: 0; text-align: center; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text) !important; font-family: var(--mono); font-size: 12px; padding: 4px 2px; width: 100%; min-width: 0; text-align: center;
+  border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 600;
+  padding: 4px 2px; display: flex; align-items: center; justify-content: center;
 }
 .spent-val { font-family: var(--mono); font-size: 12px; color: var(--accent); text-align: center; font-weight: 600; }
 
@@ -321,7 +322,7 @@ footer { text-align: center; font-size: 11px; color: var(--text3); padding: 10px
 <header>
   <div class="header-left">
     <div class="app-title">♠ POKER</div>
-    <div class="app-sub" id="headerSub">TRACKER v3.3</div>
+    <div class="app-sub" id="headerSub">TRACKER v3.6</div>
   </div>
   <div class="header-right">
     <div id="syncPill" class="room-pill" style="display:none" onclick="showTab('sync')">
@@ -589,8 +590,8 @@ window._firebase = {
 // ═══════════════════════════════════
 //  STORAGE
 // ═══════════════════════════════════
-const STORAGE_KEY = "pkt_state_33";
-const HISTORY_KEY = "pkt_history_33";
+const STORAGE_KEY = "pkt_state_36";
+const HISTORY_KEY = "pkt_history_36";
 const ROOM_KEY    = "pkt_room";
 
 const moneyFmt = new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL", minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -921,17 +922,17 @@ function renderPlayers() {
         onchange="setPlayerName(${p.id}, this.value)" ${p.busted?'disabled':''} />
       <div class="counter">
         <button class="c-btn" onclick="adj(${p.id},'buyIns',-1)" ${p.busted?'disabled':''}>−</button>
-        <input class="c-val" type="number" min="0" max="1" value="${p.buyIns}" onchange="setField(${p.id},'buyIns',this.value,0,1)" ${p.busted?'disabled':''} />
+        <div class="c-val">${p.buyIns}</div>
         <button class="c-btn" onclick="adj(${p.id},'buyIns',1)" ${p.busted?'disabled':''}>+</button>
       </div>
       <div class="counter">
         <button class="c-btn" onclick="adj(${p.id},'rebuys',-1)" ${p.busted?'disabled':''}>−</button>
-        <input class="c-val" type="number" min="0" value="${p.rebuys}" onchange="setField(${p.id},'rebuys',this.value,0)" ${p.busted?'disabled':''} />
+        <div class="c-val">${p.rebuys}</div>
         <button class="c-btn" onclick="adj(${p.id},'rebuys',1)" ${p.busted?'disabled':''}>+</button>
       </div>
       <div class="counter">
         <button class="c-btn" onclick="adj(${p.id},'addOns',-1)" ${p.busted?'disabled':''}>−</button>
-        <input class="c-val" type="number" min="0" max="1" value="${p.addOns}" onchange="setField(${p.id},'addOns',this.value,0,1)" ${p.busted?'disabled':''} />
+        <div class="c-val">${p.addOns}</div>
         <button class="c-btn" onclick="adj(${p.id},'addOns',1)" ${p.busted?'disabled':''}>+</button>
       </div>
       <div class="spent-val">${fmtM(p.totalSpent)}</div>
@@ -1008,22 +1009,16 @@ function renderAll() {
   const chopPrizes = getChopPrizes();
   let prizeMap;
   if (chopPrizes && chop) {
-    const activePts2 = pts.filter(p => !p.busted);
     if (chop.type === '3way') {
       const share = pot / 3;
-      // All 3 shown as 1st place (chop)
-      prizeMap = {};
-      activePts2.forEach(p => { prizeMap[String(p.id)] = share; });
-      // force placement to "1" for display
-      activePts2.forEach(p => { p.placement = "1"; });
+      // Keep existing placements (1/2/3) — just equalize the prize amounts
       document.getElementById("prize1Amount").textContent = fmtM(share);
       document.getElementById("prize2Amount").textContent = fmtM(share);
       document.getElementById("prize3Amount").textContent = fmtM(share);
-      // Use id-based prizeMap for ranking
-      prizeMap = { _byId: true };
-      activePts2.forEach(p => { prizeMap[p.id] = share; });
-      const thirdPt3 = null;
+      // Use placement-based prizeMap with equal values
+      prizeMap = { "1": share, "2": share, "3": share };
     } else if (chop.type === '2way' && chop.thirdId != null) {
+      const activePts2 = pts.filter(p => !p.busted);
       const share = (pot - prizeCache.p3) / 2;
       document.getElementById("prize1Amount").textContent = fmtM(share);
       document.getElementById("prize2Amount").textContent = fmtM(share);
@@ -1049,9 +1044,10 @@ function renderAll() {
   const p1p = pts.find(p=>p.placement==="1");
   const p2p = pts.find(p=>p.placement==="2");
   const p3p = pts.find(p=>p.placement==="3");
-  document.getElementById("prize1Name").textContent = p1p ? p1p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
-  document.getElementById("prize2Name").textContent = p2p ? p2p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
-  document.getElementById("prize3Name").textContent = p3p ? p3p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
+  const chopLabel = chop&&chop.type==='3way' ? "(chop)" : "—";
+  document.getElementById("prize1Name").textContent = p1p ? p1p.displayName : chopLabel;
+  document.getElementById("prize2Name").textContent = p2p ? p2p.displayName : chopLabel;
+  document.getElementById("prize3Name").textContent = p3p ? p3p.displayName : chopLabel;
 
   // Prize sum warning
   const sum = toNum(s.prize1)+toNum(s.prize2)+toNum(s.prize3);
@@ -1127,7 +1123,7 @@ function renderRanking(pts, prizeMap) {
       <div class="rank-info">
         <div class="rank-name">${escHtml(p.displayName)}</div>
         <div class="rank-detail">BI: ${p.buyIns} (${biVal}) · RB: ${p.rebuys} (${rbVal}) · AD: ${p.addOns} (${aoVal}) · Gasto: ${fmtM(p.totalSpent)}</div>
-        <div class="rank-detail" style="margin-top:2px">Resultado: <span style="color:${hasPrize?(result>=0?'var(--green)':'var(--red)'):'var(--text3)'}">${hasPrize?(result>=0?'+':'')+fmtM(result):fmtM(-p.totalSpent)}</span></div>
+        <div class="rank-detail" style="margin-top:2px">Resultado: <strong style="color:${result>=0?'var(--green)':'var(--red)'}">${result>=0?'+':''}${fmtM(result)}</strong></div>
       </div>`;
     summEl.appendChild(d);
   });
@@ -1244,8 +1240,6 @@ function doClearHistory() { history=[]; saveHistory(history); closeModal("clearH
 function shareWhatsApp() {
   const pts = playerTotals();
   const s   = state.settings;
-  const prizeMap2 = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
-  const icons    = {"1":"🥇","2":"🥈","3":"🥉"};
   const date = new Date().toLocaleDateString("pt-BR");
 
   function getPrizeWA(p) {
@@ -1254,35 +1248,47 @@ function shareWhatsApp() {
       const share = (prizeCache.pot - prizeCache.p3) / 2;
       return p.id === chop.thirdId ? prizeCache.p3 : share;
     }
-    return prizeMap2[p.placement] || 0;
+    return {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3}[p.placement] || 0;
   }
 
-  let msg = `♠ *POKER TRACKER — ${date}*\n`;
-  msg += `💰 *Pote Total: ${fmtM(prizeCache.pot)}*\n\n`;
-
-  if (chop) {
-    msg += chop.type === '3way'
-      ? `🤝 *CHOP — Divisão em 3 iguais*\n\n`
-      : `🤝 *CHOP — Divisão 2+1*\n\n`;
-  }
-
-  const sorted = [...pts].sort((a,b)=>{
-    if(a.placement&&b.placement) return Number(a.placement)-Number(b.placement);
-    if(a.placement) return -1; if(b.placement) return 1;
+  const sorted = [...pts].sort((a,b) => {
+    if (a.placement && b.placement) return Number(a.placement) - Number(b.placement);
+    if (a.placement) return -1; if (b.placement) return 1;
     return b.totalSpent - a.totalSpent;
   });
 
+  let msg = `♠ *POKER TRACKER — ${date}*\n`;
+  msg += `💰 *Pote Total: ${fmtM(prizeCache.pot)}*\n`;
+  if (chop) {
+    msg += chop.type === '3way'
+      ? `🤝 *CHOP — Divisão em 3 iguais (${fmtM(prizeCache.pot/3)} cada)*\n`
+      : `🤝 *CHOP — Divisão 2+1*\n`;
+  }
+  msg += `\n`;
+
+  // Podium
+  const podium = sorted.filter(p => p.placement && Number(p.placement) <= 3);
+  if (podium.length) {
+    msg += `*PODIO*\n`;
+    podium.forEach(p => {
+      const prize  = getPrizeWA(p);
+      const result = prize - p.totalSpent;
+      msg += `${p.placement}. ${p.displayName} — ${fmtM(prize)} (${result>=0?'+':''}${fmtM(result)})\n`;
+    });
+    msg += `\n`;
+  }
+
+  // Detailed
+  msg += `*DETALHADO*\n`;
   sorted.forEach(p => {
     const prize  = getPrizeWA(p);
     const result = prize - p.totalSpent;
     const biVal  = fmtM(p.buyIns  * toNum(s.buyInValue));
     const rbVal  = fmtM(p.rebuys  * toNum(s.rebuyValue));
     const aoVal  = fmtM(p.addOns  * toNum(s.addOnValue));
-    const posIcon = chop ? (p.id===chop?.thirdId?'🥉':(prize>0?'🥇':'·'))
-                         : (icons[p.placement]||p.placement?(p.placement+'º'):'·');
-    msg += `${posIcon} *${p.displayName}*\n`;
+    msg += `- *${p.displayName}*\n`;
     msg += `BI: ${p.buyIns} (${biVal}) | RB: ${p.rebuys} (${rbVal}) | AD: ${p.addOns} (${aoVal})\n`;
-    msg += `Gasto: ${fmtM(p.totalSpent)} | Resultado: ${result>=0?'+':''}${fmtM(result)}\n\n`;
+    msg += `Gasto: ${fmtM(p.totalSpent)} | Resultado: ${result>=0?'+':''}${fmtM(result)}\n`;
   });
 
   window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
@@ -1382,7 +1388,7 @@ function escHtml(s) {
 //  INIT
 // ═══════════════════════════════════
 function init() {
-  document.getElementById("headerSub").textContent = `TRACKER v3.3 · ${new Date().toLocaleDateString("pt-BR")}`;
+  document.getElementById("headerSub").textContent = `TRACKER v3.6 · ${new Date().toLocaleDateString("pt-BR")}`;
   setupSettingsInputs();
   renderPlayers();
   renderAll();
