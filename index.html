@@ -159,7 +159,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .c-btn:active { background: var(--border); }
 .c-val {
   flex: 1; min-width: 0; text-align: center; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 4px 2px; width: 100%;
+  border-radius: 6px; color: var(--text) !important; font-family: var(--mono); font-size: 12px; padding: 4px 2px; width: 100%; min-width: 0; text-align: center;
 }
 .spent-val { font-family: var(--mono); font-size: 12px; color: var(--accent); text-align: center; font-weight: 600; }
 
@@ -1008,23 +1008,34 @@ function renderAll() {
   const chopPrizes = getChopPrizes();
   let prizeMap;
   if (chopPrizes && chop) {
-    // Map chop prizes back to display
     const activePts2 = pts.filter(p => !p.busted);
     if (chop.type === '3way') {
       const share = pot / 3;
-      // assign 1/2/3 to active players in order
+      // All 3 shown as 1st place (chop)
       prizeMap = {};
-      activePts2.forEach((p, i) => { prizeMap[String(i+1)] = share; });
-      // update prize display
+      activePts2.forEach(p => { prizeMap[String(p.id)] = share; });
+      // force placement to "1" for display
+      activePts2.forEach(p => { p.placement = "1"; });
       document.getElementById("prize1Amount").textContent = fmtM(share);
       document.getElementById("prize2Amount").textContent = fmtM(share);
       document.getElementById("prize3Amount").textContent = fmtM(share);
+      // Use id-based prizeMap for ranking
+      prizeMap = { _byId: true };
+      activePts2.forEach(p => { prizeMap[p.id] = share; });
+      const thirdPt3 = null;
     } else if (chop.type === '2way' && chop.thirdId != null) {
       const share = (pot - prizeCache.p3) / 2;
+      // Both active shown as 1st (chop)
+      activePts2.forEach(p => { p.placement = "1"; });
+      // 3rd stays as 3rd
+      const p3player = state.players.find(p => p.id === chop.thirdId);
+      if (p3player) p3player.placement = "3";
       document.getElementById("prize1Amount").textContent = fmtM(share);
       document.getElementById("prize2Amount").textContent = fmtM(share);
       document.getElementById("prize3Amount").textContent = fmtM(prizeCache.p3);
-      prizeMap = {"1": share, "2": share, "3": prizeCache.p3};
+      prizeMap = { _byId: true };
+      activePts2.forEach(p => { prizeMap[p.id] = share; });
+      if (p3player) prizeMap[p3player.id] = prizeCache.p3;
     } else {
       prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
     }
@@ -1056,20 +1067,27 @@ function renderRanking(pts, prizeMap) {
   if (!prizeMap) prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
   const rankEl = document.getElementById("rankingList");
   const summEl = document.getElementById("playersSummaryList");
-  const icons    = {"1":"🥇","2":"🥈","3":"🥉"};
+  const icons  = {"1":"🥇","2":"🥈","3":"🥉"};
+  const byId   = prizeMap._byId === true;
 
-  const ranked = pts.filter(p=>p.placement&&Number(p.placement)<=3).sort((a,b)=>Number(a.placement)-Number(b.placement));
+  function getPrize(p) {
+    if (byId) return prizeMap[p.id] || 0;
+    return prizeMap[p.placement] || 0;
+  }
+
+  const ranked = pts.filter(p=>p.placement&&(Number(p.placement)<=3||(byId&&prizeMap[p.id]))).sort((a,b)=>Number(a.placement)-Number(b.placement));
   rankEl.innerHTML = "";
   if (!ranked.length) {
     rankEl.innerHTML = '<div style="font-size:13px;color:var(--text3);font-family:var(--mono);padding:12px 0">Nenhuma posição definida ainda.</div>';
   } else {
     ranked.forEach(p => {
-      const prize = prizeMap[p.placement]||0;
+      const prize = getPrize(p);
       const result = prize - p.totalSpent;
+      const icon = byId && prizeMap[p.id] ? "🥇" : (icons[p.placement] || p.placement+'º');
       const d = document.createElement("div");
       d.className = "ranking-item";
       d.innerHTML = `
-        <div class="rank-icon">${icons[p.placement]}</div>
+        <div class="rank-icon">${icon}</div>
         <div class="rank-info">
           <div class="rank-name">${escHtml(p.displayName)}</div>
           <div class="rank-detail">Gasto: ${fmtM(p.totalSpent)} · Prêmio: ${fmtM(prize)}</div>
@@ -1088,14 +1106,15 @@ function renderRanking(pts, prizeMap) {
     return b.totalSpent - a.totalSpent;
   });
   sorted.forEach(p => {
-    const prize = prizeMap[p.placement]||0;
+    const prize = getPrize(p);
     const result = prize - p.totalSpent;
-    const hasPrize = p.placement && Number(p.placement)<=3;
+    const hasPrize = (byId && prizeMap[p.id]) || (!byId && p.placement && Number(p.placement)<=3);
+    const icon = byId && prizeMap[p.id] ? "🥇" : (p.placement ? (icons[p.placement]||p.placement+'º') : (p.busted?'☠':'·'));
     const d = document.createElement("div");
     d.className = "ranking-item";
     d.style.opacity = p.busted && !hasPrize ? "0.6" : "1";
     d.innerHTML = `
-      <div class="rank-icon" style="font-size:14px">${p.placement ? (icons[p.placement]||p.placement+'º') : (p.busted?'☠':'·')}</div>
+      <div class="rank-icon" style="font-size:14px">${icon}</div>
       <div class="rank-info">
         <div class="rank-name">${escHtml(p.displayName)}</div>
         <div class="rank-detail">BI:${p.buyIns} · RB:${p.rebuys} · AO:${p.addOns} · ${fmtM(p.totalSpent)}</div>
