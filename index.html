@@ -119,6 +119,9 @@ input[type="text"], input[type="number"], select {
 }
 input:focus, select:focus { outline: none; border-color: var(--accent); }
 input::placeholder { color: var(--text3); }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
 
 /* ── PRIZE INPUTS ── */
 .prize-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -396,8 +399,11 @@ footer { text-align: center; font-size: 11px; color: var(--text3); padding: 10px
       <button class="add-player-btn" onclick="addPlayer()">+ Adicionar jogador</button>
     </div>
 
-    <!-- Chop calculator (shown when ≤3 active players) -->
+    <!-- Chop calculator (shown when exactly 3 active players remain) -->
     <div id="chopCard" style="display:none"></div>
+
+    <!-- Chop 2 — third place selector -->
+    <div id="chop2Card" style="display:none"></div>
 
     <div style="display:flex;gap:8px;">
       <button class="btn btn-danger" style="flex:1" onclick="confirmReset()">⟳ Zerar</button>
@@ -702,60 +708,171 @@ function computePrizes(pot) {
 }
 
 // ═══════════════════════════════════
-//  CHOP CALCULATOR
+//  CHOP STATE
 // ═══════════════════════════════════
-function renderChopCard() {
-  const card = document.getElementById("chopCard");
-  const active = activePlayers();
-  const pts = playerTotals();
+// chop: null | { type: '3way' } | { type: '2way', thirdId: number }
+let chop = null;
 
-  if (active.length > 3 || active.length < 2) {
-    card.style.display = "none";
-    return;
+function getChopPrizes() {
+  // Returns { [playerId]: amount } or null if no chop
+  if (!chop) return null;
+  const pts = playerTotals();
+  const pot = prizeCache.pot;
+  const activePts = pts.filter(p => !p.busted);
+
+  if (chop.type === '3way') {
+    const share = pot / 3;
+    const map = {};
+    activePts.forEach(p => { map[p.id] = share; });
+    return map;
   }
 
-  card.style.display = "block";
-  const activePts = pts.filter(p => !p.busted);
-  const pot = prizeCache.pot;
-  const n = activePts.length;
-
-  let chopResults = [];
-
-  if (n === 3) {
-    // Equal 3-way chop
-    const share = pot / 3;
-    chopResults = activePts.map(p => ({ name: p.displayName, amount: share, spent: p.totalSpent }));
-  } else if (n === 2) {
-    // 3rd gets preset %, remaining split equally
+  if (chop.type === '2way' && chop.thirdId != null) {
     const third = prizeCache.p3;
     const remaining = pot - third;
     const share = remaining / 2;
-    // find who has placement=3 if set, otherwise show both
-    const p3 = pts.find(p => p.busted && p.placement === "3");
-    chopResults = activePts.map(p => ({ name: p.displayName, amount: share, spent: p.totalSpent }));
-    if (p3) {
-      chopResults.unshift({ name: p3.displayName, amount: third, spent: p3.totalSpent, isThird: true });
+    const map = {};
+    // The two active players
+    activePts.forEach(p => { map[p.id] = share; });
+    // The third place (busted player selected)
+    map[chop.thirdId] = third;
+    return map;
+  }
+  return null;
+}
+
+// ═══════════════════════════════════
+//  CHOP CALCULATOR RENDER
+// ═══════════════════════════════════
+function renderChopCard() {
+  const card  = document.getElementById("chopCard");
+  const card2 = document.getElementById("chop2Card");
+  const active = activePlayers();
+  const pts    = playerTotals();
+  const pot    = prizeCache.pot;
+
+  // Only show when exactly 3 active remain
+  if (active.length !== 3) {
+    card.style.display  = "none";
+    card2.style.display = "none";
+    // Clear chop if player count changes
+    if (chop) { chop = null; }
+    return;
+  }
+
+  const activePts = pts.filter(p => !p.busted);
+
+  // ── If no chop selected yet: show choice buttons ──
+  if (!chop) {
+    card.style.display = "block";
+    card2.style.display = "none";
+    card.innerHTML = `
+      <div class="chop-card">
+        <div class="chop-title">🤝 CHOP — 3 jogadores restantes</div>
+        <div class="chop-sub">Escolha o tipo de divisão:</div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-blue" style="flex:1;margin-top:0" onclick="applyChop3()">Dividir em 3 iguais</button>
+          <button class="btn btn-accent2" style="flex:1;margin-top:0" onclick="showChop2Selector()">Dividir em 2 (1 sai)</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // ── Chop 2: selector step ──
+  if (chop.type === '2way' && chop.thirdId == null) {
+    card.style.display = "none";
+    card2.style.display = "block";
+    const options = activePts.map(p =>
+      `<option value="${p.id}">${escHtml(p.displayName)}</option>`
+    ).join("");
+    card2.innerHTML = `
+      <div class="chop-card" style="border-color:var(--accent2)">
+        <div class="chop-title" style="color:var(--accent2)">🥉 Quem fica em 3º lugar?</div>
+        <div class="chop-sub">Este jogador recebe ${toNum(state.settings.prize3)}% do pote (${fmtM(prizeCache.p3)}). O restante é dividido igualmente entre os outros dois.</div>
+        <select id="thirdPlaceSelect" style="width:100%;margin-bottom:12px;font-size:15px;padding:10px">
+          <option value="">— Selecione —</option>
+          ${options}
+        </select>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-accent2" style="flex:1;margin-top:0" onclick="confirmChop2()">Confirmar chop</button>
+          <button class="btn btn-secondary" style="flex:1;margin-top:0" onclick="cancelChop()">Cancelar</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // ── Chop confirmed: show results ──
+  card2.style.display = "none";
+  card.style.display  = "block";
+
+  const chopPrizes = getChopPrizes();
+  let rows = [];
+
+  if (chop.type === '3way') {
+    const share = pot / 3;
+    rows = activePts.map(p => ({
+      name: p.displayName, amount: share, spent: p.totalSpent, tag: ""
+    }));
+  } else if (chop.type === '2way') {
+    const third = prizeCache.p3;
+    const remaining = pot - third;
+    const share = remaining / 2;
+    const thirdPt = pts.find(p => p.id === chop.thirdId);
+    rows = activePts.map(p => ({
+      name: p.displayName, amount: share, spent: p.totalSpent,
+      tag: p.id === chop.thirdId ? " 🥉" : ""
+    }));
+    if (thirdPt && !rows.find(r => r.name === thirdPt.displayName)) {
+      rows.unshift({ name: thirdPt.displayName, amount: third, spent: thirdPt.totalSpent, tag: " 🥉" });
     }
   }
 
-  const title = n === 3 ? "🤝 CHOP — 3 jogadores" : "🤝 CHOP — 2 jogadores";
-  const sub   = n === 3
-    ? `Divisão igualitária do pote de ${fmtM(pot)}`
+  const title = chop.type === '3way' ? "🤝 CHOP — Divisão em 3 iguais" : "🤝 CHOP — Divisão 2+1";
+  const sub   = chop.type === '3way'
+    ? `Pote de ${fmtM(pot)} dividido igualmente`
     : `3º leva ${toNum(state.settings.prize3)}% · restante dividido em 2`;
 
   card.innerHTML = `
     <div class="chop-card">
       <div class="chop-title">${title}</div>
       <div class="chop-sub">${sub}</div>
-      ${chopResults.map(r => `
+      ${rows.map(r => `
         <div class="chop-result-row">
           <div>
-            <div class="chop-name">${escHtml(r.name)}${r.isThird ? ' <span style="font-size:11px;color:var(--text3)">(3º)</span>' : ''}</div>
-            <div style="font-size:11px;color:var(--text3);font-family:var(--mono)">Gasto: ${fmtM(r.spent)} · Resultado: <span style="color:${r.amount-r.spent>=0?'var(--green)':'var(--red)'}">${r.amount-r.spent>=0?'+':''}${fmtM(r.amount-r.spent)}</span></div>
+            <div class="chop-name">${escHtml(r.name)}${r.tag}</div>
+            <div style="font-size:11px;color:var(--text3);font-family:var(--mono)">
+              Gasto: ${fmtM(r.spent)} ·
+              <span style="color:${r.amount-r.spent>=0?'var(--green)':'var(--red)'}">
+                ${r.amount-r.spent>=0?'+':''}${fmtM(r.amount-r.spent)}
+              </span>
+            </div>
           </div>
           <div class="chop-amount">${fmtM(r.amount)}</div>
         </div>`).join("")}
+      <button class="btn btn-secondary" style="margin-top:12px" onclick="cancelChop()">✕ Cancelar chop</button>
     </div>`;
+}
+
+function applyChop3() {
+  chop = { type: '3way' };
+  renderChopCard(); renderAll();
+}
+function showChop2Selector() {
+  chop = { type: '2way', thirdId: null };
+  renderChopCard();
+}
+function confirmChop2() {
+  const sel = document.getElementById("thirdPlaceSelect");
+  if (!sel || !sel.value) { alert("Selecione o 3º lugar."); return; }
+  chop.thirdId = Number(sel.value);
+  // auto-set placement for the third player
+  const p = state.players.find(p => p.id === chop.thirdId);
+  if (p) p.placement = "3";
+  saveState(); renderChopCard(); renderAll();
+}
+function cancelChop() {
+  chop = null;
+  renderChopCard(); renderAll();
 }
 
 // ═══════════════════════════════════
@@ -887,13 +1004,40 @@ function renderAll() {
   document.getElementById("prize2Amount").textContent = fmtM(prizeCache.p2);
   document.getElementById("prize3Amount").textContent = fmtM(prizeCache.p3);
 
-  const prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
+  // Override prizes with chop amounts if active
+  const chopPrizes = getChopPrizes();
+  let prizeMap;
+  if (chopPrizes && chop) {
+    // Map chop prizes back to display
+    const activePts2 = pts.filter(p => !p.busted);
+    if (chop.type === '3way') {
+      const share = pot / 3;
+      // assign 1/2/3 to active players in order
+      prizeMap = {};
+      activePts2.forEach((p, i) => { prizeMap[String(i+1)] = share; });
+      // update prize display
+      document.getElementById("prize1Amount").textContent = fmtM(share);
+      document.getElementById("prize2Amount").textContent = fmtM(share);
+      document.getElementById("prize3Amount").textContent = fmtM(share);
+    } else if (chop.type === '2way' && chop.thirdId != null) {
+      const share = (pot - prizeCache.p3) / 2;
+      document.getElementById("prize1Amount").textContent = fmtM(share);
+      document.getElementById("prize2Amount").textContent = fmtM(share);
+      document.getElementById("prize3Amount").textContent = fmtM(prizeCache.p3);
+      prizeMap = {"1": share, "2": share, "3": prizeCache.p3};
+    } else {
+      prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
+    }
+  } else {
+    prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
+  }
+
   const p1p = pts.find(p=>p.placement==="1");
   const p2p = pts.find(p=>p.placement==="2");
   const p3p = pts.find(p=>p.placement==="3");
-  document.getElementById("prize1Name").textContent = p1p ? p1p.displayName : "—";
-  document.getElementById("prize2Name").textContent = p2p ? p2p.displayName : "—";
-  document.getElementById("prize3Name").textContent = p3p ? p3p.displayName : "—";
+  document.getElementById("prize1Name").textContent = p1p ? p1p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
+  document.getElementById("prize2Name").textContent = p2p ? p2p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
+  document.getElementById("prize3Name").textContent = p3p ? p3p.displayName : (chop&&chop.type==='3way'?"(chop)":"—");
 
   // Prize sum warning
   const sum = toNum(s.prize1)+toNum(s.prize2)+toNum(s.prize3);
@@ -901,17 +1045,17 @@ function renderAll() {
   if (sum!==100) { warn.style.display="block"; warn.textContent=`⚠ Soma dos prêmios: ${sum}% (deve ser 100%)`; }
   else warn.style.display="none";
 
-  renderRanking(pts);
+  renderRanking(pts, prizeMap);
   renderChopCard();
 }
 
 // ═══════════════════════════════════
 //  RANKING
 // ═══════════════════════════════════
-function renderRanking(pts) {
+function renderRanking(pts, prizeMap) {
+  if (!prizeMap) prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
   const rankEl = document.getElementById("rankingList");
   const summEl = document.getElementById("playersSummaryList");
-  const prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
   const icons    = {"1":"🥇","2":"🥈","3":"🥉"};
 
   const ranked = pts.filter(p=>p.placement&&Number(p.placement)<=3).sort((a,b)=>Number(a.placement)-Number(b.placement));
