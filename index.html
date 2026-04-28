@@ -321,7 +321,7 @@ footer { text-align: center; font-size: 11px; color: var(--text3); padding: 10px
 <header>
   <div class="header-left">
     <div class="app-title">♠ POKER</div>
-    <div class="app-sub" id="headerSub">TRACKER v3.2</div>
+    <div class="app-sub" id="headerSub">TRACKER v3.3</div>
   </div>
   <div class="header-right">
     <div id="syncPill" class="room-pill" style="display:none" onclick="showTab('sync')">
@@ -589,8 +589,8 @@ window._firebase = {
 // ═══════════════════════════════════
 //  STORAGE
 // ═══════════════════════════════════
-const STORAGE_KEY = "pkt_state_32";
-const HISTORY_KEY = "pkt_history_32";
+const STORAGE_KEY = "pkt_state_33";
+const HISTORY_KEY = "pkt_history_33";
 const ROOM_KEY    = "pkt_room";
 
 const moneyFmt = new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL", minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -818,13 +818,13 @@ function renderChopCard() {
     const remaining = pot - third;
     const share = remaining / 2;
     const thirdPt = pts.find(p => p.id === chop.thirdId);
-    rows = activePts.map(p => ({
-      name: p.displayName, amount: share, spent: p.totalSpent,
+    // Build rows: thirdId player gets prize3, the other two get share each
+    rows = pts.filter(p => !p.busted || p.id === chop.thirdId).map(p => ({
+      name: p.displayName,
+      amount: p.id === chop.thirdId ? third : share,
+      spent: p.totalSpent,
       tag: p.id === chop.thirdId ? " 🥉" : ""
     }));
-    if (thirdPt && !rows.find(r => r.name === thirdPt.displayName)) {
-      rows.unshift({ name: thirdPt.displayName, amount: third, spent: thirdPt.totalSpent, tag: " 🥉" });
-    }
   }
 
   const title = chop.type === '3way' ? "🤝 CHOP — Divisão em 3 iguais" : "🤝 CHOP — Divisão 2+1";
@@ -1025,17 +1025,20 @@ function renderAll() {
       const thirdPt3 = null;
     } else if (chop.type === '2way' && chop.thirdId != null) {
       const share = (pot - prizeCache.p3) / 2;
-      // Both active shown as 1st (chop)
-      activePts2.forEach(p => { p.placement = "1"; });
-      // 3rd stays as 3rd
-      const p3player = state.players.find(p => p.id === chop.thirdId);
-      if (p3player) p3player.placement = "3";
       document.getElementById("prize1Amount").textContent = fmtM(share);
       document.getElementById("prize2Amount").textContent = fmtM(share);
       document.getElementById("prize3Amount").textContent = fmtM(prizeCache.p3);
       prizeMap = { _byId: true };
-      activePts2.forEach(p => { prizeMap[p.id] = share; });
-      if (p3player) prizeMap[p3player.id] = prizeCache.p3;
+      // active players (excluding thirdId) get share each
+      activePts2.forEach(p => {
+        prizeMap[p.id] = p.id === chop.thirdId ? prizeCache.p3 : share;
+      });
+      // also cover thirdId if they're busted
+      if (!prizeMap[chop.thirdId]) prizeMap[chop.thirdId] = prizeCache.p3;
+      // set placements
+      activePts2.forEach(p => { p.placement = p.id === chop.thirdId ? "3" : "1"; });
+      const p3bst = state.players.find(p => p.id === chop.thirdId && p.busted);
+      if (p3bst) p3bst.placement = "3";
     } else {
       prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
     }
@@ -1108,8 +1111,14 @@ function renderRanking(pts, prizeMap) {
   sorted.forEach(p => {
     const prize = getPrize(p);
     const result = prize - p.totalSpent;
-    const hasPrize = (byId && prizeMap[p.id]) || (!byId && p.placement && Number(p.placement)<=3);
-    const icon = byId && prizeMap[p.id] ? "🥇" : (p.placement ? (icons[p.placement]||p.placement+'º') : (p.busted?'☠':'·'));
+    const hasPrize = (byId && prizeMap[p.id] != null) || (!byId && p.placement && Number(p.placement)<=3);
+    const icon = (byId && prizeMap[p.id] && p.id !== chop?.thirdId) ? "🥇"
+      : (byId && p.id === chop?.thirdId) ? "🥉"
+      : (p.placement ? (icons[p.placement]||p.placement+'º') : (p.busted?'☠':'·'));
+    const s = state.settings;
+    const biVal  = fmtM(p.buyIns  * toNum(s.buyInValue));
+    const rbVal  = fmtM(p.rebuys  * toNum(s.rebuyValue));
+    const aoVal  = fmtM(p.addOns  * toNum(s.addOnValue));
     const d = document.createElement("div");
     d.className = "ranking-item";
     d.style.opacity = p.busted && !hasPrize ? "0.6" : "1";
@@ -1117,10 +1126,8 @@ function renderRanking(pts, prizeMap) {
       <div class="rank-icon" style="font-size:14px">${icon}</div>
       <div class="rank-info">
         <div class="rank-name">${escHtml(p.displayName)}</div>
-        <div class="rank-detail">BI:${p.buyIns} · RB:${p.rebuys} · AO:${p.addOns} · ${fmtM(p.totalSpent)}</div>
-      </div>
-      <div class="rank-result" style="color:${hasPrize?(result>=0?'var(--green)':'var(--red)'):'var(--text3)'}">
-        ${hasPrize ? (result>=0?'+':'')+fmtM(result) : fmtM(p.totalSpent)}
+        <div class="rank-detail">BI: ${p.buyIns} (${biVal}) · RB: ${p.rebuys} (${rbVal}) · AD: ${p.addOns} (${aoVal}) · Gasto: ${fmtM(p.totalSpent)}</div>
+        <div class="rank-detail" style="margin-top:2px">Resultado: <span style="color:${hasPrize?(result>=0?'var(--green)':'var(--red)'):'var(--text3)'}">${hasPrize?(result>=0?'+':'')+fmtM(result):fmtM(-p.totalSpent)}</span></div>
       </div>`;
     summEl.appendChild(d);
   });
@@ -1236,18 +1243,48 @@ function doClearHistory() { history=[]; saveHistory(history); closeModal("clearH
 // ═══════════════════════════════════
 function shareWhatsApp() {
   const pts = playerTotals();
-  const prizeMap = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
+  const s   = state.settings;
+  const prizeMap2 = {"1":prizeCache.p1,"2":prizeCache.p2,"3":prizeCache.p3};
   const icons    = {"1":"🥇","2":"🥈","3":"🥉"};
   const date = new Date().toLocaleDateString("pt-BR");
-  let msg = `♠ *POKER TRACKER — ${date}*\n💰 Pote Total: *${fmtM(prizeCache.pot)}*\n\n`;
-  const ranked = pts.filter(p=>p.placement&&Number(p.placement)<=3).sort((a,b)=>Number(a.placement)-Number(b.placement));
-  if (ranked.length) {
-    msg += `*🏆 PÓDIO*\n`;
-    ranked.forEach(p => { const prize=prizeMap[p.placement]||0; const res=prize-p.totalSpent; msg+=`${icons[p.placement]} ${p.displayName}: ${fmtM(prize)} (${res>=0?'+':''}${fmtM(res)})\n`; });
-    msg += "\n";
+
+  function getPrizeWA(p) {
+    if (chop && chop.type === '3way') return prizeCache.pot / 3;
+    if (chop && chop.type === '2way' && chop.thirdId != null) {
+      const share = (prizeCache.pot - prizeCache.p3) / 2;
+      return p.id === chop.thirdId ? prizeCache.p3 : share;
+    }
+    return prizeMap2[p.placement] || 0;
   }
-  msg += `*📊 DETALHADO*\n`;
-  pts.sort((a,b)=>b.totalSpent-a.totalSpent).forEach(p=>{msg+=`• ${p.displayName}: BI×${p.buyIns} RB×${p.rebuys} AO×${p.addOns} = ${fmtM(p.totalSpent)}\n`;});
+
+  let msg = `♠ *POKER TRACKER — ${date}*\n`;
+  msg += `💰 *Pote Total: ${fmtM(prizeCache.pot)}*\n\n`;
+
+  if (chop) {
+    msg += chop.type === '3way'
+      ? `🤝 *CHOP — Divisão em 3 iguais*\n\n`
+      : `🤝 *CHOP — Divisão 2+1*\n\n`;
+  }
+
+  const sorted = [...pts].sort((a,b)=>{
+    if(a.placement&&b.placement) return Number(a.placement)-Number(b.placement);
+    if(a.placement) return -1; if(b.placement) return 1;
+    return b.totalSpent - a.totalSpent;
+  });
+
+  sorted.forEach(p => {
+    const prize  = getPrizeWA(p);
+    const result = prize - p.totalSpent;
+    const biVal  = fmtM(p.buyIns  * toNum(s.buyInValue));
+    const rbVal  = fmtM(p.rebuys  * toNum(s.rebuyValue));
+    const aoVal  = fmtM(p.addOns  * toNum(s.addOnValue));
+    const posIcon = chop ? (p.id===chop?.thirdId?'🥉':(prize>0?'🥇':'·'))
+                         : (icons[p.placement]||p.placement?(p.placement+'º'):'·');
+    msg += `${posIcon} *${p.displayName}*\n`;
+    msg += `BI: ${p.buyIns} (${biVal}) | RB: ${p.rebuys} (${rbVal}) | AD: ${p.addOns} (${aoVal})\n`;
+    msg += `Gasto: ${fmtM(p.totalSpent)} | Resultado: ${result>=0?'+':''}${fmtM(result)}\n\n`;
+  });
+
   window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
 }
 
@@ -1345,7 +1382,7 @@ function escHtml(s) {
 //  INIT
 // ═══════════════════════════════════
 function init() {
-  document.getElementById("headerSub").textContent = `TRACKER v3.2 · ${new Date().toLocaleDateString("pt-BR")}`;
+  document.getElementById("headerSub").textContent = `TRACKER v3.3 · ${new Date().toLocaleDateString("pt-BR")}`;
   setupSettingsInputs();
   renderPlayers();
   renderAll();
