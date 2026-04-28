@@ -589,8 +589,8 @@ window._firebase = {
 // ═══════════════════════════════════
 //  STORAGE
 // ═══════════════════════════════════
-const STORAGE_KEY = "pkt_state_31";
-const HISTORY_KEY = "pkt_history_31";
+const STORAGE_KEY = "pkt_state_32";
+const HISTORY_KEY = "pkt_history_32";
 const ROOM_KEY    = "pkt_room";
 
 const moneyFmt = new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL", minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -1345,7 +1345,7 @@ function escHtml(s) {
 //  INIT
 // ═══════════════════════════════════
 function init() {
-  document.getElementById("headerSub").textContent = `TRACKER v3.1 · ${new Date().toLocaleDateString("pt-BR")}`;
+  document.getElementById("headerSub").textContent = `TRACKER v3.2 · ${new Date().toLocaleDateString("pt-BR")}`;
   setupSettingsInputs();
   renderPlayers();
   renderAll();
